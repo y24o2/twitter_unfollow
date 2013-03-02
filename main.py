@@ -27,43 +27,55 @@ def main():
 	auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
 	auth.set_access_token(access_token, access_token_secret)
 	twapi = tweepy.API(auth)
-	twfollowers = twapi.followers()
-	# Sqlite3 Connection
-	sqlconn = sqlite3.connect("follow.db")
-	sqlc = sqlconn.cursor()
-	# CREATE TABLE IF NOT EXISTS and INSERT followers
-	sqlc.execute("CREATE TABLE IF NOT EXISTS followers (id INTEGER PRIMARY KEY ASC, name TEXT, screen_name TEXT)")
-	sqle = sqlc.execute("SELECT * FROM followers ORDER BY id")
-	sqlfollowers_data = sqle.fetchall()
-	if len(sqlfollowers_data) == 0:
-		for follower in twfollowers:
-			sqlc.execute("INSERT INTO followers VALUES (" + str(follower.id) + ", '" + follower.name + "', '" + follower.screen_name + "')")
-			print follower.screen_name + " added"
-		sqlconn.commit()
-		sqlconn.close()
+	
+	# get IDs
+	twitter_ids = twapi.followers_ids()
+	
+	# sqlite
+	con = sqlite3.connect("data.db")
+	cur = con.cursor()
+	
+	# sqlite create database
+	cur.execute("CREATE TABLE IF NOT EXISTS ids (id INTEGER PRIMARY KEY ASC)")
+	if len(cur.execute("SELECT id FROM ids").fetchall()) == 0:
+		for i in twitter_ids:
+			cur.execute("INSERT INTO ids VALUES (" + str(i) + ")")
+		con.commit()
+		con.close()
 		return 0
-	# UPDATE Database
-	for follower in twfollowers:
-		sqle = sqlc.execute("SELECT * FROM followers WHERE ID = " + str(follower.id))
-		user_data = sqle.fetchone()
-		if user_data == None:
-			sqlc.execute("INSERT INTO followers VALUES (" + str(follower.id) + ", '" + follower.name+"', '" + follower.screen_name + "')")
-		elif user_data[1] != follower.name or user_data[2] != follower.screen_name:
-			sqlc.execute("UPDATE followers SET name = '" + follower.name + "', screen_name = '" + follower.screen_name + "' WHERE id = " + str(follower.id))
-	# Unfollower
-	sqlfollower_ids = list()
-	for follower in sqlfollowers_data:
-		sqlfollower_ids.append(follower[0])
-	unfollower_ids = set(sqlfollower_ids)
-	for follower in twfollowers:
-		unfollower_ids = unfollower_ids - set([follower.id])
-	for follower_id in unfollower_ids:
-		sqle = sqlc.execute("SELECT * FROM followers WHERE id = " + str(follower_id))
-		follower_data = sqle.fetchone()
-		print "@" + follower_data[2]
-		sqlc.execute("DELETE FROM followers WHERE id = " + str(follower_id))
-	sqlconn.commit()
-	sqlconn.close()
+	
+	# comparison
+	sql_ids = []
+	for row in cur.execute("SELECT id FROM ids"):
+		sql_ids += [row[0]]
+	lost_ids = set(sql_ids) - set(twitter_ids)
+	new_ids = set(twitter_ids) - set(sql_ids)
+	
+	# debug
+	debug = False
+	if debug:
+		print "sql ids:"
+		print sql_ids
+		print "\ntwitter ids:"
+		print twitter_ids
+		print "\nlost ids:"
+		print lost_ids
+		print "\nnew ids:"
+		print new_ids
+		return 0 #debug
+	
+	# sqlite update db
+	for i in lost_ids:
+		cur.execute("DELETE FROM ids WHERE id = '" + str(i) + "'")
+		user = twapi.get_user(i)
+		print user.name + "@" + user.screen_name
+	for i in new_ids:
+		cur.execute("INSERT INTO ids VALUES ('" + str(i) + "')")
+	
+	# sqlite save db and exit
+	con.commit()
+	con.close()
+	return 0
 
 if __name__ == "__main__":
 	main()
